@@ -30,8 +30,8 @@
 	 safe_any/2, safe_zip/2, tuple_map/2, cut_improper_tail/1,
 	 head_length/1, find_first/2, filter/2, partition/2, remove/2, insert/3,
 	 unflatten/2]).
--export([rand_start/0, rand_reseed/0, rand_stop/0,
-	 rand_int/1, rand_int/2, rand_non_neg_int/1,
+-export([rand_start/1, rand_reseed/0, rand_stop/0,
+	 rand_int/1, rand_int/2, smart_rand_int/3, rand_non_neg_int/1,
 	 rand_float/1, rand_float/2, rand_non_neg_float/1,
 	 distribute/2, jumble/1, rand_choose/1, freq_choose/1]).
 
@@ -211,9 +211,9 @@ remove_n(N, {List,Acc}) ->
 
 %% @doc Seeds the random number generator. This function should be run before
 %% calling any random function from this module.
--spec rand_start() -> 'ok'.
-rand_start() ->
-    _ = random:seed(now()),
+-spec rand_start(seed()) -> 'ok'.
+rand_start(Seed) ->
+    _ = ?RANDOM_MOD:seed(Seed),
     %% TODO: read option for RNG bijections here
     ok.
 
@@ -221,12 +221,12 @@ rand_start() ->
 rand_reseed() ->
     %% TODO: This should use the pid of the process somehow, in case two
     %%       spawned functions call it simultaneously?
-    _ = random:seed(now()),
+    _ = ?RANDOM_MOD:seed(now()),
     ok.
 
 -spec rand_stop() -> 'ok'.
 rand_stop() ->
-    erase(random_seed),
+    erase(?SEED_NAME),
     ok.
 
 -spec rand_int(non_neg_integer()) -> integer().
@@ -237,28 +237,58 @@ rand_int(Const) ->
 rand_non_neg_int(Const) ->
     trunc(rand_non_neg_float(Const)).
 
+-spec bounded_rand_non_neg_int(non_neg_integer(), non_neg_integer()) ->
+				      non_neg_integer().
+bounded_rand_non_neg_int(Const, Lim) when is_integer(Lim), Lim >= 0 ->
+    X = rand_non_neg_int(Const),
+    case X > Lim of
+	true  -> bounded_rand_non_neg_int(Const, Lim);
+	false -> X
+    end.
+
 -spec rand_int(integer(), integer()) -> integer().
 rand_int(Low, High) when is_integer(Low), is_integer(High), Low =< High ->
-    Low + random:uniform(High - Low + 1) - 1.
+    Low + ?RANDOM_MOD:uniform(High - Low + 1) - 1.
+
+%% When the range is large, skew the distribution to be more like that of an
+%% unbounded random integer.
+-spec smart_rand_int(non_neg_integer(), integer(), integer()) -> integer().
+smart_rand_int(Const, Low, High) ->
+    case High - Low =< ?SMALL_RANGE_THRESHOLD of
+	true  -> rand_int(Low, High);
+	false -> wide_range_rand_int(Const, Low, High)
+    end.
+
+-spec wide_range_rand_int(non_neg_integer(), integer(), integer()) ->
+				 integer().
+wide_range_rand_int(Const, Low, High) when Low >= 0 ->
+    Low + bounded_rand_non_neg_int(Const, High - Low);
+wide_range_rand_int(Const, Low, High) when High =< 0 ->
+    High - bounded_rand_non_neg_int(Const, High - Low);
+wide_range_rand_int(Const, Low, High) ->
+    case ?RANDOM_MOD:uniform(2) of
+	1 -> smart_rand_int(Const, 0, High);
+	2 -> smart_rand_int(Const, Low, 0)
+    end.
 
 -spec rand_float(non_neg_integer()) -> float().
 rand_float(Const) ->
     X = rand_non_neg_float(Const),
-    case random:uniform(2) of
+    case ?RANDOM_MOD:uniform(2) of
 	1 -> X;
 	2 -> -X
     end.
 
 -spec rand_non_neg_float(non_neg_integer()) -> float().
 rand_non_neg_float(Const) when is_integer(Const), Const >= 0 ->
-    case random:uniform() of
+    case ?RANDOM_MOD:uniform() of
 	1.0 -> rand_non_neg_float(Const);
 	X   -> Const * zero_one_to_zero_inf(X)
     end.
 
 -spec rand_float(float(), float()) -> float().
 rand_float(Low, High) when is_float(Low), is_float(High), Low =< High ->
-    Low + random:uniform() * (High - Low).
+    Low + ?RANDOM_MOD:uniform() * (High - Low).
 
 -spec zero_one_to_zero_inf(float()) -> float().
 %% This function must return only non-negative values and map 0.0 to 0.0, but

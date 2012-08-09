@@ -30,7 +30,7 @@
 %%% meant for demonstration purposes only.
 
 -module(proper_gen).
--export([pick/1, pick/2, sample/1, sample/3, sampleshrink/1, sampleshrink/2]).
+-export([pick/1, pick/2, pick/3, sample/1, sample/3, sampleshrink/1, sampleshrink/2]).
 
 -export([safe_generate/1]).
 -export([generate/1, normal_gen/1, alt_gens/1, clean_instance/1,
@@ -68,11 +68,28 @@
 %% @private_type
 -type sized_generator() :: fun((size()) -> imm_instance()).
 %% @private_type
+-type typed_sized_generator() :: {'typed',
+                                  fun((proper_types:type(),size()) ->
+                                      imm_instance())}.
+%% @private_type
 -type nosize_generator() :: fun(() -> imm_instance()).
 %% @private_type
--type generator() :: sized_generator() | nosize_generator().
+-type typed_nosize_generator() :: {'typed',
+                                   fun((proper_types:type()) ->
+                                       imm_instance())}.
 %% @private_type
--type reverse_gen() :: fun((instance()) -> imm_instance()).
+-type generator() :: sized_generator()
+                   | typed_sized_generator()
+                   | nosize_generator()
+                   | typed_nosize_generator().
+%% @private_type
+-type plain_reverse_gen() :: fun((instance()) -> imm_instance()).
+%% @private_type
+-type typed_reverse_gen() :: {'typed',
+                              fun((proper_types:type(),instance()) ->
+                                  imm_instance())}.
+%% @private_type
+-type reverse_gen() :: plain_reverse_gen() | typed_reverse_gen().
 %% @private_type
 -type combine_fun() :: fun((instance()) -> imm_instance()).
 %% @private_type
@@ -179,11 +196,16 @@ generate(Type, TriesLeft, Fallback) ->
 pick(RawType) ->
     pick(RawType, 10).
 
-%% @doc Generates a random instance of `Type', of size `Size'.
--spec pick(Type::proper_types:raw_type(), size()) ->
-	  {'ok',instance()} | 'error'.
+%% @equiv pick(Type, Size, now())
+-spec pick(Type::proper_types:raw_type(), size()) -> {'ok', instance()} | 'error'.
 pick(RawType, Size) ->
-    proper:global_state_init_size(Size),
+    pick(RawType, Size, now()).
+
+%% @doc Generates a random instance of `Type', of size `Size' with seed `Seed'.
+-spec pick(Type::proper_types:raw_type(), size(), seed()) ->
+	  {'ok',instance()} | 'error'.
+pick(RawType, Size, Seed) ->
+    proper:global_state_init_size_seed(Size, Seed),
     case clean_instance(safe_generate(RawType)) of
 	{ok,Instance} = Result ->
 	    Msg = "WARNING: Some garbage has been left in the process registry "
@@ -267,10 +289,17 @@ contains_fun(_Term) ->
 %% @private
 -spec normal_gen(proper_types:type()) -> imm_instance().
 normal_gen(Type) ->
-    Gen = proper_types:get_prop(generator, Type),
-    if
-	is_function(Gen, 0) -> Gen();
-	is_function(Gen, 1) -> Gen(proper:get_size(Type))
+    case proper_types:get_prop(generator, Type) of
+        {typed, Gen} ->
+            if
+                is_function(Gen, 1) -> Gen(Type);
+                is_function(Gen, 2) -> Gen(Type, proper:get_size(Type))
+            end;
+        Gen ->
+            if
+                is_function(Gen, 0) -> Gen();
+                is_function(Gen, 1) -> Gen(proper:get_size(Type))
+            end
     end.
 
 %% @private
@@ -312,8 +341,8 @@ integer_gen(Size, inf, High) ->
     High - proper_arith:rand_non_neg_int(Size);
 integer_gen(Size, Low, inf) ->
     Low + proper_arith:rand_non_neg_int(Size);
-integer_gen(_Size, Low, High) ->
-    proper_arith:rand_int(Low, High).
+integer_gen(Size, Low, High) ->
+    proper_arith:smart_rand_int(Size, Low, High).
 
 %% @private
 -spec float_gen(size(), proper_types:extnum(), proper_types:extnum()) ->
@@ -483,9 +512,11 @@ loose_tuple_gen(Size, ElemType) ->
 loose_tuple_rev(Tuple, ElemType) ->
     CleanList = tuple_to_list(Tuple),
     List = case proper_types:find_prop(reverse_gen, ElemType) of
-	       {ok,ReverseGen} -> [ReverseGen(X) || X <- CleanList];
-	       error           -> CleanList
-	   end,
+                {ok,{typed, ReverseGen}} ->
+                    [ReverseGen(ElemType,X) || X <- CleanList];
+                {ok,ReverseGen} -> [ReverseGen(X) || X <- CleanList];
+                error           -> CleanList
+            end,
     {'$used', List, Tuple}.
 
 %% @private
@@ -576,9 +607,17 @@ function_body(Args, RetType, {Seed1,Seed2}) ->
 	true ->
 	    RetType;
 	_ ->
-	    SavedSeed = get(random_seed),
-	    put(random_seed, {Seed1,Seed2,erlang:phash2(Args,?SEED_RANGE)}),
+	    SavedSeed = get(?SEED_NAME),
+	    update_seed({Seed1,Seed2,erlang:phash2(Args,?SEED_RANGE)}),
 	    Ret = clean_instance(generate(RetType)),
-	    put(random_seed, SavedSeed),
+	    put(?SEED_NAME, SavedSeed),
 	    proper_symb:internal_eval(Ret)
     end.
+
+-ifdef(USE_SFMT).
+update_seed(Seed) ->
+    sfmt:seed(Seed).
+-else.
+update_seed(Seed) ->
+    put(random_seed, Seed).
+-endif.

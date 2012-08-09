@@ -1,4 +1,4 @@
-%%% Copyright 2010-2011 Manolis Papadakis <manopapad@gmail.com>,
+%%% Copyright 2010-2012 Manolis Papadakis <manopapad@gmail.com>,
 %%%                     Eirini Arvaniti <eirinibob@gmail.com>
 %%%                 and Kostis Sagonas <kostis@cs.ntua.gr>
 %%%
@@ -17,7 +17,7 @@
 %%% You should have received a copy of the GNU General Public License
 %%% along with PropEr.  If not, see <http://www.gnu.org/licenses/>.
 
-%%% @copyright 2010-2011 Manolis Papadakis, Eirini Arvaniti and Kostis Sagonas
+%%% @copyright 2010-2012 Manolis Papadakis, Eirini Arvaniti and Kostis Sagonas
 %%% @version {@version}
 %%% @author Manolis Papadakis
 %%% @doc Internal header file: This header is included in all PropEr source
@@ -35,6 +35,17 @@
 -compile({parse_transform, strip_types}).
 -endif.
 
+%%------------------------------------------------------------------------------
+%% Random generator selection
+%%------------------------------------------------------------------------------
+
+-ifdef(USE_SFMT).
+-define(RANDOM_MOD, sfmt).
+-define(SEED_NAME, sfmt_seed).
+-else.
+-define(RANDOM_MOD, random).
+-define(SEED_NAME, random_seed).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% Macros
@@ -53,6 +64,7 @@
 -define(ANY_SIMPLE_PROB, 3).
 -define(ANY_BINARY_PROB, 1).
 -define(ANY_EXPAND_PROB, 8).
+-define(SMALL_RANGE_THRESHOLD, 16#FFFF).
 
 
 %%------------------------------------------------------------------------------
@@ -66,13 +78,15 @@
 -type length() :: non_neg_integer().
 -type position() :: pos_integer().
 -type frequency() :: pos_integer().
+-type seed() :: {non_neg_integer(), non_neg_integer(), non_neg_integer()}.
+
+-type abs_form()   :: erl_parse:abstract_form().
+-type abs_expr()   :: erl_parse:abstract_expr().
+-type abs_clause() :: erl_parse:abstract_clause().
 
 %% TODO: Replace these with the appropriate types from stdlib.
--type abs_form() :: term().
--type abs_clause() :: term().
 -type abs_type() :: term().
 -type abs_rec_field() :: term().
--type abs_expr() :: term().
 
 -type loose_tuple(T) :: {} | {T} | {T,T} | {T,T,T} | {T,T,T,T} | {T,T,T,T,T}
 		      | {T,T,T,T,T,T} | {T,T,T,T,T,T,T} | {T,T,T,T,T,T,T,T}

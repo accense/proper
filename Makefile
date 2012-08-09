@@ -1,4 +1,4 @@
-# Copyright 2010-2011 Manolis Papadakis <manopapad@gmail.com>,
+# Copyright 2010-2012 Manolis Papadakis <manopapad@gmail.com>,
 #                     Eirini Arvaniti <eirinibob@gmail.com>
 #                 and Kostis Sagonas <kostis@cs.ntua.gr>
 #
@@ -20,20 +20,23 @@
 # Author:      Manolis Papadakis
 # Description: Instructions for make
 
-.PHONY: default all compile dialyze check_escripts tests doc clean distclean rebuild retest
+.PHONY: default all compile dialyzer check_escripts tests doc clean distclean rebuild retest
 
-default: compile
+default: get-deps compile
 
 all: compile doc
 
 include/compile_flags.hrl:
 	./write_compile_flags $@
 
+get-deps:
+	./rebar get-deps
+
 compile:
 	./rebar compile
 
-dialyze: compile
-	./rebar dialyze
+dialyzer: compile
+	dialyzer -Wunmatched_returns ebin
 
 check_escripts:
 	./check_escripts.sh make_doc write_compile_flags
@@ -48,7 +51,7 @@ clean:
 	./clean_temp.sh
 
 distclean: clean
-	rm include/compile_flags.hrl
+	rm -f include/compile_flags.hrl
 	./rebar clean
 
 rebuild: distclean include/compile_flags.hrl
